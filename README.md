@@ -55,6 +55,7 @@ ghostsub checks for all dependencies on startup and will offer to install anythi
 
 ```bash
 git clone https://github.com/NEED-Programming/ghostsub.git
+sudo chmod 7777 ghostsub/
 cd ghostsub
 python3 ghostsub.py
 ```
