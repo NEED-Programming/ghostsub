@@ -11,6 +11,7 @@ import os
 import platform
 import datetime
 import socket
+import argparse
 
 # ─────────────────────────────────────────────
 # ANSI Colors
@@ -622,16 +623,38 @@ def run_scan(target: str, statuses: dict[str, bool]):
 def main():
     banner()
 
-    # 1. Check tools
+    # ── Argument parsing ──────────────────────────
+    parser = argparse.ArgumentParser(
+        prog="ghostsub",
+        description="Subdomain takeover scanner",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "-d", "--domain",
+        metavar="DOMAIN",
+        help="Single target domain (e.g. example.com)"
+    )
+    group.add_argument(
+        "-f", "--file",
+        metavar="FILE",
+        help="File containing list of target domains, one per line"
+    )
+    parser.add_argument(
+        "-y", "--yes",
+        action="store_true",
+        help="Skip confirmation prompt (use responsibly)"
+    )
+    args = parser.parse_args()
+
+    # ── Tool check & install ──────────────────────
     statuses = check_tools()
 
-    # 2. Install missing (with user permission)
     all_ready = handle_missing(statuses)
     if not all_ready:
         error("Cannot proceed — required tools are missing.")
         sys.exit(1)
 
-    # 3. Re-check after installs
     print(f"\n{BOLD}── Post-install Verification ───────────────────{RESET}")
     for name in TOOLS:
         was_missing = not statuses.get(name, True)
@@ -642,18 +665,47 @@ def main():
             else:
                 warn(f"{name} still not found. Check {go_bin_path()} or open a new terminal.")
 
-    # 4. Get target and run
-    target = get_target()
+    # ── Build target list ─────────────────────────
+    targets = []
 
-    confirm = prompt_yes_no(
-        f"Start subdomain takeover scan against {BOLD}{target}{RESET}? "
-        f"(Only run on domains you own or have written permission to test)"
-    )
-    if not confirm:
-        warn("Scan cancelled.")
-        sys.exit(0)
+    if args.file:
+        if not os.path.exists(args.file):
+            error(f"File not found: {args.file}")
+            sys.exit(1)
+        with open(args.file) as fh:
+            targets = [sanitize_domain(line) for line in fh if line.strip() and not line.startswith("#")]
+        if not targets:
+            error("Target file is empty or has no valid domains.")
+            sys.exit(1)
+        info(f"Loaded {len(targets)} target(s) from {args.file}")
+    elif args.domain:
+        targets = [sanitize_domain(args.domain)]
+    else:
+        # Interactive mode
+        targets = [get_target()]
 
-    run_scan(target, statuses)
+    # ── Confirm before scanning ───────────────────
+    if not args.yes:
+        domain_preview = targets[0] if len(targets) == 1 else f"{len(targets)} domains"
+        confirm = prompt_yes_no(
+            f"Start subdomain takeover scan against {BOLD}{domain_preview}{RESET}? "
+            f"(Only run on domains you own or have written permission to test)"
+        )
+        if not confirm:
+            warn("Scan cancelled.")
+            sys.exit(0)
+
+    # ── Run scans ─────────────────────────────────
+    total = len(targets)
+    all_findings = {}
+
+    for i, target in enumerate(targets, 1):
+        if total > 1:
+            print(f"\n{BOLD}── [{i}/{total}] {CYAN}{target}{RESET}{BOLD} ──────────────────────────{RESET}")
+        run_scan(target, statuses)
+
+    if total > 1:
+        print(f"\n{BOLD}── All scans complete ({total} targets) ────────────{RESET}\n")
 
 
 if __name__ == "__main__":
